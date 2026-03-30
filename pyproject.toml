@@ -25,6 +25,7 @@ dependencies=[
     "bayesian-torch",
     "pot",
     "torch_cluster",
+    "ipywidgets>=8.1.8",
 ]
 
 [project.optional-dependencies]

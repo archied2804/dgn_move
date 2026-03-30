@@ -21,6 +21,18 @@ def plot_losses(tensorboard_data):
         plt.legend()
         plt.grid()
         plt.show()
+
+    elif 'Loss/train' in tensorboard_data:
+        train_steps, train_losses = zip(*tensorboard_data['Loss/train'])
+
+        plt.figure(figsize=(10, 5))
+        plt.plot(train_steps, train_losses, label='Training Loss', color='blue')
+        plt.xlabel('Steps')
+        plt.ylabel('Loss')
+        plt.title('Training Loss')
+        plt.legend()
+        plt.grid()
+        plt.show()
     else:
         print("No training or validation loss data available for plotting.")
 
