@@ -5,6 +5,8 @@ import torch.nn.functional as F
 import math
 from torch_geometric.utils import scatter
 
+from .diffusion.polar_diffusion_process import PolarRadialDiffusionProcess
+
 from .diffusion.diffusion_model import DiffusionModel
 from .flow_matching import FlowMatchingModel
 from .model import Model
@@ -189,6 +191,84 @@ def batch_wise_mean(
         field = field.mean(dim=1) # Dimension: (num_nodes)
     batch_size = batch.max().item() + 1
     return scatter(field, batch, dim=0, dim_size=batch_size, reduce='mean') # Dimension: (batch_size)
+
+
+class PolarGeomHybridLoss(nn.Module):
+    """
+    Hybrid diffusion loss (noise-prediction MSE + optional VLB)
+    for a PolarRadialDiffusionProcess operating on node positions.
+    
+    Expects:
+        graph.target  — clean positions [N, 2]
+        graph.loc     — local cond  [N, C_loc]  (pressure + normals)
+        graph.glob    — global cond [B, C_glob] (Re)
+        graph.pos     — clean positions (for static connectivity)
+        graph.edge_index — precomputed edges
+    """
+
+    def __init__(self, vlb_weight: float = 0.001):
+        super().__init__()
+        self.vlb_weight = vlb_weight  # set 0.0 to use pure noise MSE
+
+    def forward(self, model, graph) -> torch.Tensor:
+        dp = model.diffusion_process
+        assert isinstance(dp, PolarRadialDiffusionProcess), \
+            "PolarGeomHybridLoss requires a PolarRadialDiffusionProcess"
+
+        batch_size = graph.batch.max().item() + 1
+        device     = graph.target.device
+
+        # 1. Sample a diffusion step
+        r = dp.sample_r(batch_size, device=device)      
+        graph.r = r
+
+        # 2. Apply polar forward diffusion
+        graph.field_r, noise_target = dp(
+            field_start = graph.target,                 
+            r           = r,
+            batch       = graph.batch,
+        ) 
+
+        # 3. Update edge features
+        graph.edge_attr = (
+            graph.field_r[graph.edge_index[1]] -
+            graph.field_r[graph.edge_index[0]]
+        )
+
+        # 4. Forward pass
+        model_output = model(graph)
+        if isinstance(model_output, tuple):
+            eps_pred, v = model_output
+        else:
+            eps_pred = model_output
+            v = None
+
+        # 5a. Noise-prediction MSE per node
+        # We calculate the squared error per node, then use batch_wise_mean
+        se = (eps_pred - noise_target)**2 
+        loss = batch_wise_mean(se, graph.batch) # Result shape: [batch_size]
+
+        # 5b. Optional VLB term (per batch)
+        if self.vlb_weight > 0.0 and v is not None:
+            mean, variance = model.get_posterior_mean_and_variance_from_output(
+                model_output, graph, dp)
+            
+            true_mean, true_variance = dp.get_posterior_mean_and_variance(
+                field_start = graph.target,
+                field_r     = graph.field_r,
+                batch       = graph.batch,
+                r           = r,
+            )
+            
+            # Compute KL divergence per node, then reduce per batch
+            kl_per_node = 0.5 * (
+                torch.log(true_variance / variance) +
+                (variance + (mean - true_mean)**2) / true_variance - 1
+            )
+            kl_batch = batch_wise_mean(kl_per_node, graph.batch)
+            loss = loss + self.vlb_weight * kl_batch
+
+        return loss # This is now a 1D tensor of shape [batch_size]
 
 
 class FlowMatchingLoss(nn.Module):

@@ -367,3 +367,80 @@ class pOnWing(Dataset):
         graph.loc    = data[:, 3:6] # nx, ny, nz
         graph.target = data[:, 6 + idx0 : 6 + idx1]
         return graph
+
+
+
+
+def compute_surface_normals(pos: torch.Tensor) -> torch.Tensor:
+    """
+    Numerically estimate outward normals for an ordered 2D surface point cloud.
+    Assumes nodes are ordered consistently (CW or CCW) around the surface.
+    Falls back to radius-based normal if ordering is unknown.
+
+    pos : [N, 2]
+    returns normals : [N, 2]  (unit vectors)
+    """
+    # Tangent via central finite difference (wrapped)
+    pos_next = torch.roll(pos, -1, dims=0)
+    pos_prev = torch.roll(pos,  1, dims=0)
+    tangent  = pos_next - pos_prev                      # [N, 2]
+
+    # Rotate 90° CCW to get outward normal (flip sign if needed)
+    normal = torch.stack([-tangent[:, 1], tangent[:, 0]], dim=-1)
+
+    # Ensure outward (dot product with radial direction should be > 0)
+    radial = pos / (torch.norm(pos, dim=-1, keepdim=True) + 1e-8)
+    sign   = torch.sign((normal * radial).sum(dim=-1, keepdim=True))
+    normal = normal * sign
+
+    # Normalise
+    normal = normal / (torch.norm(normal, dim=-1, keepdim=True) + 1e-8)
+    return normal  # [N, 2]
+
+
+class pOnEllipseGeometry(pOnEllipse):
+    """
+    pOnEllipse adapted for geometry generation.
+    
+    graph.target  = clean surface positions [N, 2]
+    graph.loc     = [p, nx, ny]             [N, 3]  local cond
+    graph.glob    = [Re]                    [N, 1]  global cond (broadcast)
+    graph.pos     = clean surface positions [N, 2]  (for graph connectivity)
+    """
+
+    def data2graph(
+        self,
+        data: torch.Tensor,
+        idx0: int,
+        idx1: int,
+    ) -> Graph:
+        # Check number of nodes (not np.nan)
+        N = (data[:, 0] == data[:, 0]).sum()
+        # Remove np.nan and only keep the real nodes
+        data = data[:N]
+
+        # Build graph
+        graph = Graph()
+
+        # Positions (centred)
+        pos = data[:, :2] - data[:, :2].mean(dim=0)
+        graph.pos    = pos
+        graph.target = pos.clone()   # diffusion target = geometry
+
+        # Re (global conditioning)
+        graph.glob = data[:, 2:3]   # Reynolds no
+
+        # Mean pressure over the time window as local node conditioning
+        p_raw   = data[:, 4 + idx0 : 4 + idx1]          # [N, T_window]
+        p_mean  = p_raw.mean(dim=-1, keepdim=True)       # [N, 1]
+        # Normalise pressure to [-1, 1] using dataset range
+        p_scale = 3.0
+        p_norm  = p_mean / p_scale                       # [N, 1]
+
+        # Surface normals from geometry
+        normals = compute_surface_normals(pos)           # [N, 2]
+
+        # Local conditioning: [p_norm, nx, ny]
+        graph.loc = torch.cat([p_norm, normals], dim=-1) # [N, 3]
+
+        return graph

@@ -10,4 +10,5 @@ from .flow_matching import *
 
 torch.serialization.add_safe_globals([
     DiffusionProcess,
+    PolarRadialDiffusionProcess,
 ])
