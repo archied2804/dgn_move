@@ -26,37 +26,25 @@ class PolarDiffusionGraphNet(DiffusionGraphNet):
         dp         = self.diffusion_process
         batch_size = graph.batch.max().item() + 1
 
-        # Start from isotropic Gaussian noise in xy  (pure Gaussian cloud)
-        graph.field_r = torch.randn(
-            graph.batch.size(0), self.num_fields, device=self.device)  # [N,2]
+        theta_init = torch.atan2(graph.pos[:, 1:2], graph.pos[:, 0:1])
+        r_noise    = torch.randn(graph.batch.size(0), 1, device=self.device)
+        graph.field_r = torch.cat([r_noise * theta_init.cos(),
+                                    r_noise * theta_init.sin()], dim=-1)
 
         step_list = dp.steps[::-1] if steps is None else sorted(steps)[::-1]
-
         for step in step_list:
-            graph.r = torch.full(
-                (batch_size,), step, dtype=torch.long, device=self.device)
-
-            # ---- update edge_attr from current noisy positions ----
-            # so the graph net sees the noisy geometry at this step
-            graph.edge_attr = (
-                graph.field_r[graph.edge_index[1]] -
-                graph.field_r[graph.edge_index[0]]
-            )  # [E, 2]
-
+            graph.r = torch.full((batch_size,), step, dtype=torch.long, device=self.device)
+            graph.edge_attr = (graph.field_r[graph.edge_index[1]]
+                            - graph.field_r[graph.edge_index[0]])
             model_output = self(graph)
             mean, variance = self.get_posterior_mean_and_variance_from_output(
                 model_output, graph, dp)
 
-            # ---- radial noise injection in reverse step ----
             if step > 0:
-                # Get angle from CURRENT noisy positions
-                theta = torch.atan2(
-                    graph.field_r[:, 1:2], graph.field_r[:, 0:1])  # [N,1]
-                z_r   = torch.randn(
-                    graph.batch.size(0), 1, device=self.device)     # [N,1]
-                unit_r = torch.cat(
-                    [torch.cos(theta), torch.sin(theta)], dim=-1)   # [N,2]
-                radial_noise = z_r * unit_r                         # [N,2]
+                theta = torch.atan2(graph.field_r[:, 1:2], graph.field_r[:, 0:1])
+                z_r   = torch.randn(graph.batch.size(0), 1, device=self.device)
+                unit_r = torch.cat([torch.cos(theta), torch.sin(theta)], dim=-1)
+                radial_noise = z_r * unit_r
             else:
                 radial_noise = torch.zeros_like(mean)
 
