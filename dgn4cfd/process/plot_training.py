@@ -1,3 +1,4 @@
+import numpy as np
 import matplotlib.pyplot as plt
 
 # Plot the training and validation losses againt epochs
@@ -27,6 +28,41 @@ def plot_losses(tensorboard_data):
 
         plt.figure(figsize=(10, 5))
         plt.plot(train_steps, train_losses, label='Training Loss', color='blue')
+        plt.xlabel('Steps')
+        plt.ylabel('Loss')
+        plt.title('Training Loss')
+        plt.legend()
+        plt.grid()
+        plt.show()
+    else:
+        print("No training or validation loss data available for plotting.")
+
+def plot_log_losses(tensorboard_data):
+    """
+    Plot training and validation losses from TensorBoard data.
+
+    Args:
+        tensorboard_data (dict): Dictionary containing scalar data from TensorBoard.
+    """
+    if 'Loss/train' in tensorboard_data and 'Loss/test' in tensorboard_data:
+        train_steps, train_losses = zip(*tensorboard_data['Loss/train'])
+        test_steps, test_losses = zip(*tensorboard_data['Loss/test'])
+
+        plt.figure(figsize=(10, 5))
+        plt.plot(train_steps, np.log(train_losses), label='Training Loss', color='blue')
+        plt.plot(test_steps, np.log(test_losses)    , label='Validation Loss', color='orange')
+        plt.xlabel('Steps')
+        plt.ylabel('Loss')
+        plt.title('Training and Validation Losses')
+        plt.legend()
+        plt.grid()
+        plt.show()
+
+    elif 'Loss/train' in tensorboard_data:
+        train_steps, train_losses = zip(*tensorboard_data['Loss/train'])
+
+        plt.figure(figsize=(10, 5))
+        plt.plot(train_steps, np.log(train_losses), label='Training Loss', color='blue')
         plt.xlabel('Steps')
         plt.ylabel('Loss')
         plt.title('Training Loss')
