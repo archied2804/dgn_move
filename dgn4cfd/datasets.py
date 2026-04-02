@@ -424,8 +424,16 @@ class pOnEllipseGeometry(pOnEllipse):
 
         # Positions (centred)
         pos = data[:, :2] - data[:, :2].mean(dim=0)
-        graph.pos    = pos
-        graph.target = pos.clone()   # diffusion target = geometry
+        
+        # Create a static unit circle for the graph's reference spatial connectivity
+        theta = torch.atan2(pos[:, 1:2], pos[:, 0:1])
+        unit_circle_pos = torch.cat([torch.cos(theta), torch.sin(theta)], dim=-1)
+        
+        # The transforms will build the mesh and edge attributes based on this circle
+        graph.pos = unit_circle_pos 
+        
+        # The diffusion process will still operate on the true geometry
+        graph.target = pos.clone()
 
         # Re (global conditioning)
         graph.glob = data[:, 2:3]   # Reynolds no
@@ -437,10 +445,7 @@ class pOnEllipseGeometry(pOnEllipse):
         p_scale = 3.0
         p_norm  = p_mean / p_scale                       # [N, 1]
 
-        # Surface normals from geometry
-        normals = compute_surface_normals(pos)           # [N, 2]
-
         # Local conditioning: [p_norm, nx, ny]
-        graph.loc = torch.cat([p_norm, normals], dim=-1) # [N, 3]
+        graph.loc = torch.cat([p_norm], dim=-1) # [N, 1]
 
         return graph

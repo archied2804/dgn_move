@@ -34,8 +34,6 @@ class PolarDiffusionGraphNet(DiffusionGraphNet):
         step_list = dp.steps[::-1] if steps is None else sorted(steps)[::-1]
         for step in step_list:
             graph.r = torch.full((batch_size,), step, dtype=torch.long, device=self.device)
-            graph.edge_attr = (graph.field_r[graph.edge_index[1]]
-                            - graph.field_r[graph.edge_index[0]])
             model_output = self(graph)
             mean, variance = self.get_posterior_mean_and_variance_from_output(
                 model_output, graph, dp)

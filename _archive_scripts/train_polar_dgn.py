@@ -109,7 +109,8 @@ diffusion_process = PolarRadialDiffusionProcess(
 
 arch = {
     'in_node_features':   2,   # noisy (x, y)
-    'cond_node_features': 4,   # [p_norm, nx, ny]  +  [Re]
+    'cond_node_features': 1,   # [p_norm]
+    'cond_glob_features': 1,   # Re
     'cond_edge_features': 2,   # relative position  (updated per step in loss)
     'depths':             experiment['depths'],
     'fnns_width':         experiment['width'],
